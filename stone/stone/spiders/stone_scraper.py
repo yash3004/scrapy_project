@@ -1,5 +1,8 @@
+import re
 import time
+from cgi import parse
 from typing import Iterable, Any
+from urllib.request import Request
 
 import requests
 import scrapy
@@ -54,31 +57,39 @@ class StoneScraper2(scrapy.Spider):
     ]
 
     def parse(self, response: Response, **kwargs: Any) -> Any:
-        if response.status != 200:
-            return
-        for items in response.css("div.collection"):
-            image = items.xpath(".//li/div/div/div/div/a/img/@src").getall()
+        total_items = response.xpath(
+            "/html/body/div[1]/main/div/div[3]/div/div[1]/div/div["
+            "2]/div/div/nav/div[1]/span[5]/text()"
+        ).get()
+        if total_items is None:
+            self.parse_next(response)
+        else:
+            total_no = re.findall(r"\d+", total_items)[0]
+            total_no = int(total_no)
+            print(total_no)
+            for i in range(1, (total_no // 18) + 2):
+                next_page = f"{response.url}?page={i}"
+                yield response.follow(next_page, callback=self.parse_next)
+                print(next_page)
+
+    def parse_next(self, response: Response) -> Any:
+        products = response.css("div.collection")
+        print(products)
+        for items in products:
+            image = items.xpath(".//li/div/div/div/div/a/img[1]/@src").getall()
             title = items.xpath(
-                ".//li/div/div/div/div[" "1]/a/@data-product-title"
+                ".//li/div/div/div/div[1]/a/@data-product-title"
             ).getall()
             price = items.xpath(
-                ".//li/div/div/div/div[1]/div/div/span[" "1]/text()"
+                ".//li/div/div/div/div[1]/div/div/div/span[1]/text()"
             ).getall()
             discount_price = items.xpath(
-                ".//li/div/div/div/div[" "1]/div/div/span[2]/text()"
+                ".//li/div/div/div/div[1]/div/div/div/span[2]/text()"
             ).getall()
-            for no, i in enumerate(image):
+            for no, items in enumerate(title):
                 yield {
                     "title": title[no],
-                    "image": f"https:{image[no]}",
+                    "image": f"https://royalestones.co.uk/{image[no]}",
                     "price": price[no],
                     "discount_price": discount_price[no],
                 }
-            next_page = f"https://www.stonemart.co.uk{response.css("div#CollectionProductGrid div div nav div button::attr(data-href)").get()}"
-            data = requests.get(next_page)
-            print(data.content)
-            print(next_page)
-            response.follow(next_page, callback=self.parse)
-
-    def parse_next(self, response: Response, **kwargs: Any) -> Any:
-        pass
