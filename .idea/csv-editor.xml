@@ -24,13 +24,6 @@
             </Attribute>
           </value>
         </entry>
-        <entry key="/stone/stonemart.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
       </map>
     </option>
   </component>

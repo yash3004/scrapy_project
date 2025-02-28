@@ -93,3 +93,30 @@ class StoneScraper2(scrapy.Spider):
                     "price": price[no],
                     "discount_price": discount_price[no],
                 }
+
+
+class StoneScrapper3(scrapy.Spider):
+    name = "nustone"
+
+    start_urls = [
+        "https://nustone.co.uk/product-category/paving-slabs/"
+    ]
+
+    def parse(self , response : Response, **kwargs : Any):
+        products = response.css("li.product")
+        for product in products:
+            next_link = product.xpath("div[2]/a/@href").get()
+            yield response.follow(next_link,callback=self.parse_single_page)
+
+        next_page_link = response.xpath("/nav/ul/li[9]/a/@href")
+        if next_page_link is not None:
+            yield response.follow(next_page_link,callback=self.parse)
+
+
+
+    def parse_single_page(self, response:Response , **kwargs : Any):
+        title = response.xpath("/div/div[2]/div[1]/div[2]/div/h1/text()").get()
+        print(title)
+        pass
+
+
