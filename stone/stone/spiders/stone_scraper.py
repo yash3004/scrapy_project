@@ -1,13 +1,10 @@
 import re
 import time
-from cgi import parse
-from typing import Iterable, Any
-from urllib.request import Request
+from typing import Any
+from typing import List
 
-import requests
 import scrapy
 from scrapy.http import Response
-from typing import List
 
 
 class StoneSpider(scrapy.Spider):
@@ -98,25 +95,58 @@ class StoneScraper2(scrapy.Spider):
 class StoneScrapper3(scrapy.Spider):
     name = "nustone"
 
-    start_urls = [
-        "https://nustone.co.uk/product-category/paving-slabs/"
-    ]
+    start_urls = ["https://nustone.co.uk/product-category/paving-slabs/"]
 
-    def parse(self , response : Response, **kwargs : Any):
+    def parse(self, response: Response, **kwargs: Any):
         products = response.css("li.product")
         for product in products:
             next_link = product.xpath("div[2]/a/@href").get()
-            yield response.follow(next_link,callback=self.parse_single_page)
+            try:
+                yield response.follow(next_link, callback=self.parse_single_page)
+            except ValueError as val_err:
+                print(f"error occurred trying new layout {val_err}")
+                yield response.follow(next_link, callback=self.parse_single_page2)
 
-        next_page_link = response.xpath("/nav/ul/li[9]/a/@href")
+        next_page_link = response.css("a.next::attr(href)").get()
         if next_page_link is not None:
-            yield response.follow(next_page_link,callback=self.parse)
+            yield response.follow(next_page_link, callback=self.parse)
 
+    def parse_single_page(self, response: Response, **kwargs: Any):
+        title = response.css("h1.product_title::text").get()
+        price = response.css("div.product_price bdi::text").get()
+        variant = response.css("#pa_format option::text").getall()
+        image = response.css("div.images img::attr(src)").get()
 
+        yield {"title": title, "image": image, "variant": variant, "price/m^2": price}
 
-    def parse_single_page(self, response:Response , **kwargs : Any):
-        title = response.xpath("/div/div[2]/div[1]/div[2]/div/h1/text()").get()
-        print(title)
+    def parse_single_page2(self, response: Response, **kwargs: Any):
+
         pass
 
 
+class StoneScrapper4(scrapy.Spider):
+    name = "londenstone"
+
+    start_urls = [
+        "https://www.londonstone.co.uk/porcelain-paving/",
+    ]
+
+    def parse(self, response: Response, **kwargs: Any) -> Any:
+        products = response.css("div.product-listing-container")
+        for product in products:
+            single_page_link = product.css("div.ls-product-name a::attr(href)").get()
+
+            yield response.follow(single_page_link, callback=self.parse_single_page)
+
+    def parse_single_page(self, response: Response, **kwargs: Any):
+        title = response.css("h1#productName::text").get()
+        image = response.css("li.swiper-slide picture img::attr(src)").get()
+        price = response.css("p#productFromPrice span::text").getall()
+        actual_price, vat_inclusive_price = price[0], price[-1]
+
+        pass
+
+
+class StoneScrapper5(scrapy.Spider):
+    name = "meltonstone"
+    start_urls = ["https://meltonstone.co.uk/porcelain-paving.html"]
