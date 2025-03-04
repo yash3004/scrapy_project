@@ -143,6 +143,19 @@ class StoneScrapper4(scrapy.Spider):
         image = response.css("li.swiper-slide picture img::attr(src)").get()
         price = response.css("p#productFromPrice span::text").getall()
         actual_price, vat_inclusive_price = price[0], price[-1]
+        type = response.css("div.ls-product-nameblock div::text").get()
+        stock = stock = response.css(
+            "table.table-group-price tr.odd td " "span::text"
+        ).getall()[0]
+
+        yield {
+            "title": title,
+            "image": image,
+            "actual_price": actual_price,
+            "vat_inclusive_price": vat_inclusive_price,
+            "type": type,
+            "stock": stock,
+        }
 
         pass
 
