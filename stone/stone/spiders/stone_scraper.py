@@ -101,6 +101,7 @@ class StoneScrapper3(scrapy.Spider):
         products = response.css("li.product")
         for product in products:
             next_link = product.xpath("div[2]/a/@href").get()
+            next_link = f"{next_link}/?attribute_pa_format=slab"
             try:
                 yield response.follow(next_link, callback=self.parse_single_page)
             except ValueError as val_err:
@@ -112,12 +113,33 @@ class StoneScrapper3(scrapy.Spider):
             yield response.follow(next_page_link, callback=self.parse)
 
     def parse_single_page(self, response: Response, **kwargs: Any):
-        title = response.css("h1.product_title::text").get()
-        price = response.css("div.product_price bdi::text").get()
-        variant = response.css("#pa_format option::text").getall()
-        image = response.css("div.images img::attr(src)").get()
+        try:
+            title = response.css("h1.product_title::text").get()
+            price_per_meter = response.css("p.price-per-meter").get()
+            variant = response.css("#pa_format option::text").getall()
+            price = response.css("div.product_price bdi::text").get()
+            image = response.css("div.images img::attr(src)").get()
+            material_type = response.css("nav.woocommerce-breadcrumb a::text").getall()[
+                1
+            ]
 
-        yield {"title": title, "image": image, "variant": variant, "price/m^2": price}
+            if not all([title, price, image, material_type]):
+                raise ValueError("Missing the required fields")
+
+        except Exception as err:
+            self.logger.warning(
+                f"First layout failed trying new layout " f"Error : {err}"
+            )
+            yield response.follow(response.url, callback=self.parse_single_page2)
+
+        yield {
+            "title": title,
+            "image": image,
+            "variant": variant,
+            "price/m^2": price_per_meter,
+            "price_per_slab": price,
+            "material_type": material_type,
+        }
 
     def parse_single_page2(self, response: Response, **kwargs: Any):
 
@@ -144,7 +166,7 @@ class StoneScrapper4(scrapy.Spider):
         price = response.css("p#productFromPrice span::text").getall()
         actual_price, vat_inclusive_price = price[0], price[-1]
         type = response.css("div.ls-product-nameblock div::text").get()
-        stock = stock = response.css(
+        stock = response.css(
             "table.table-group-price tr.odd td " "span::text"
         ).getall()[0]
 
@@ -163,3 +185,15 @@ class StoneScrapper4(scrapy.Spider):
 class StoneScrapper5(scrapy.Spider):
     name = "meltonstone"
     start_urls = ["https://meltonstone.co.uk/porcelain-paving.html"]
+
+    def parse(self, response: Response, **kwargs: Any) -> Any:
+        products = response.css("div.prod-page-trustbox")
+
+        for product in products:
+            single_page_link = product.css(
+                "div.product-item-info a::attr(" "href)"
+            ).get()
+            yield response.follow(single_page_link, callback=self.parse_single_page)
+
+    def parse_single_page(self, response: Response, **kwargs: Any):
+        title = r
