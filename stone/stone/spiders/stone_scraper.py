@@ -1,9 +1,10 @@
 import re
 import time
-from typing import Any
+from typing import Any, Iterable
 from typing import List
 
 import scrapy
+from scrapy import Request
 from scrapy.http import Response
 
 
@@ -151,14 +152,24 @@ class StoneScrapper4(scrapy.Spider):
 
     start_urls = [
         "https://www.londonstone.co.uk/porcelain-paving/",
+        "https://www.londonstone.co.uk/outdoor-decking/",
+        "https://www.londonstone.co.uk/stone-paving/",
+        "https://www.londonstone.co.uk/brick-pavers/",
+        "https://www.londonstone.co.uk/cladding-and-walling/",
+        "https://www.londonstone.co.uk/garden-step-and-stone-coping/",
+        "https://www.londonstone.co.uk/garden-step-and-stone-coping/",
+        "https://www.londonstone.co.uk/metal-garden-pergola/",
+        "https://www.londonstone.co.uk/planters/corten-steel/",
     ]
 
     def parse(self, response: Response, **kwargs: Any) -> Any:
-        products = response.css("div.product-listing-container")
-        for product in products:
-            single_page_link = product.css("div.ls-product-name a::attr(href)").get()
+        products = response.css(
+            "ul.ls-product-grid-container li.filter__product-entry a.ls-product-grid-link::attr(href)"
+        ).getall()
+        print(products)
 
-            yield response.follow(single_page_link, callback=self.parse_single_page)
+        for link in products:
+            yield response.follow(link, callback=self.parse_single_page)
 
     def parse_single_page(self, response: Response, **kwargs: Any):
         title = response.css("h1#productName::text").get()
@@ -179,15 +190,43 @@ class StoneScrapper4(scrapy.Spider):
             "stock": stock,
         }
 
-        pass
-
 
 class StoneScrapper5(scrapy.Spider):
     name = "meltonstone"
-    start_urls = ["https://meltonstone.co.uk/porcelain-paving.html"]
+
+    def start_requests(self) -> Iterable[Request]:
+        start_urls = [
+            "https://meltonstone.co.uk/porcelain-paving.html",
+            "https://meltonstone.co.uk/indian-sandstone-paving.html",
+            "https://meltonstone.co.uk/walls-and-steps.html",
+            "https://meltonstone.co.uk/fireplace-hearths.html",
+            "https://meltonstone.co.uk/indoor-tiles.html",
+            "https://meltonstone.co.uk/accessories.html",
+        ]
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": "https://meltonstone.co.uk/",
+            "Connection": "keep-alive",
+            "Cache-Control": "max-age=0",
+            "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+        }
+
+        for url in start_urls:
+            yield scrapy.Request(url=url, headers=headers, callback=self.parse)
 
     def parse(self, response: Response, **kwargs: Any) -> Any:
         products = response.css("div.prod-page-trustbox")
+        print(products)
 
         for product in products:
             single_page_link = product.css(
@@ -196,4 +235,22 @@ class StoneScrapper5(scrapy.Spider):
             yield response.follow(single_page_link, callback=self.parse_single_page)
 
     def parse_single_page(self, response: Response, **kwargs: Any):
-        title = r
+        title = response.css("h1.page-title::text").get()
+        price_per_meter = response.css("span.price::text").get()
+        piece_price_inc_vat = response.css("span.total-price::text").get()
+        piece_price = response.css("div.sec-price::text").get()
+        quantity = response.css("span.qtys::text").get()
+        quantity_size = response.css("span.total-qty::text").get()
+        image = response.css(
+            "div.gallery-placeholder picture source[type='image/jpg']::attr(srcset)"
+        ).get()
+
+        yield {
+            "title": title,
+            "image": image,
+            "price_per_meter": price_per_meter,
+            "price_per_piece": piece_price,
+            "piece_price_inc_vat": piece_price_inc_vat,
+            "quantity": quantity,
+            "quantity_size": quantity_size,
+        }

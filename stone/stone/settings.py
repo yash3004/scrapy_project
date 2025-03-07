@@ -90,3 +90,15 @@ ROBOTSTXT_OBEY = False
 # Set settings whose default value is deprecated to a future-proof value
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
+
+# In your settings.py
+DOWNLOADER_MIDDLEWARES = {
+    "scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware": 110,
+    "your_project.middlewares.ProxyMiddleware": 100,
+}
+
+
+# Then create a middleware.py file with:
+class ProxyMiddleware:
+    def process_request(self, request, spider):
+        request.meta["proxy"] = "http://your-proxy-address:port"
