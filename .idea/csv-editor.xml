@@ -10,6 +10,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="/stone/stone/paving_stones.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="/stone/stone/stone_data.csv">
           <value>
             <Attribute>

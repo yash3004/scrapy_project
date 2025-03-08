@@ -4,8 +4,17 @@ from typing import Any, Iterable
 from typing import List
 
 import scrapy
+from docutils.nodes import option
 from scrapy import Request
 from scrapy.http import Response
+from scrapy_playwright.page import PageMethod
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
 class StoneSpider(scrapy.Spider):
@@ -192,65 +201,87 @@ class StoneScrapper4(scrapy.Spider):
 
 
 class StoneScrapper5(scrapy.Spider):
+
     name = "meltonstone"
+    start_urls = ["https://meltonstone.co.uk/porcelain-paving.html"]
 
-    def start_requests(self) -> Iterable[Request]:
-        start_urls = [
-            "https://meltonstone.co.uk/porcelain-paving.html",
-            "https://meltonstone.co.uk/indian-sandstone-paving.html",
-            "https://meltonstone.co.uk/walls-and-steps.html",
-            "https://meltonstone.co.uk/fireplace-hearths.html",
-            "https://meltonstone.co.uk/indoor-tiles.html",
-            "https://meltonstone.co.uk/accessories.html",
-        ]
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Referer": "https://meltonstone.co.uk/",
-            "Connection": "keep-alive",
-            "Cache-Control": "max-age=0",
-            "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-User": "?1",
-            "Upgrade-Insecure-Requests": "1",
-        }
+    custom_settings = {
+        "PLAYWRIGHT_BROWSER_TYPE": "chromium",
+        "DOWNLOAD_HANDLERS": {
+            "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+            "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+        },
+        "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 10000000,
+    }
 
-        for url in start_urls:
-            yield scrapy.Request(url=url, headers=headers, callback=self.parse)
+    async def parse(self, response):
+        product_links = response.css("a.product-item-link::attr(href)").getall()
+        for link in product_links:
+            yield scrapy.Request(
+                link,
+                callback=self.parse_single_page,
+                meta={
+                    "playwright": True,
+                    "playwright_page_methods": [
+                        PageMethod(
+                            "wait_for_selector", "h1.page-title span, h1.page-title"
+                        ),
+                        PageMethod("wait_for_selector", "span.sec-price"),
+                        PageMethod("wait_for_selector", "span.price"),
+                        PageMethod("wait_for_selector", "span.was"),
+                        PageMethod("wait_for_selector", "span.total-price"),
+                    ],
+                },
+            )
 
-    def parse(self, response: Response, **kwargs: Any) -> Any:
-        products = response.css("div.prod-page-trustbox")
-        print(products)
-
-        for product in products:
-            single_page_link = product.css(
-                "div.product-item-info a::attr(" "href)"
-            ).get()
-            yield response.follow(single_page_link, callback=self.parse_single_page)
-
-    def parse_single_page(self, response: Response, **kwargs: Any):
-        title = response.css("h1.page-title::text").get()
-        price_per_meter = response.css("span.price::text").get()
-        piece_price_inc_vat = response.css("span.total-price::text").get()
-        piece_price = response.css("div.sec-price::text").get()
-        quantity = response.css("span.qtys::text").get()
-        quantity_size = response.css("span.total-qty::text").get()
-        image = response.css(
-            "div.gallery-placeholder picture source[type='image/jpg']::attr(srcset)"
-        ).get()
+    async def parse_single_page(self, response):
+        title = (
+            response.css("h1.page-title span::text, h1.page-title::text")
+            .get(default="")
+            .strip()
+        )
+        price_per_meter = response.css("span.price::text").get(default="").strip()
+        was_price = response.css("span.was::text").get(default="").strip()
+        sec_price = response.css("span.sec-price::text").get(default="").strip()
+        price_inc_vat = response.css("span.total-price::text").get(default="").strip()
+        image = response.css("div.gallery-placeholder img::attr(src)").get()
 
         yield {
             "title": title,
             "image": image,
             "price_per_meter": price_per_meter,
-            "price_per_piece": piece_price,
-            "piece_price_inc_vat": piece_price_inc_vat,
-            "quantity": quantity,
-            "quantity_size": quantity_size,
+            "was_price": was_price,
+            "sec_price": sec_price,
+            "piece_price_inc_vat": price_inc_vat,
         }
+
+
+class StoneScrapper6(scrapy.Spider):
+    name = "pavingstones"
+
+    start_urls = ["https://pavingstonesdirect.co.uk/51-porcelain-paving"]
+
+    def parse(self, response: Response, **kwargs: Any) -> Any:
+
+        products = response.css("a.product-name::attr(href)").getall()
+        for product in products:
+            yield response.follow(product, callback=self.parse_single_page)
+
+        next_page = response.css("li.pagination_next a::attr(href)").get()
+        if next_page:
+            next_page_url = response.urljoin(next_page)
+            yield scrapy.Request(next_page_url, callback=self.parse)
+
+    def parse_single_page(self, response: Response, **kwargs: Any):
+
+        rows = response.css("table.table-data-sheet tr")
+        data_dict = {}
+
+        for row in rows:
+            key = row.css("td:first-child::text").get()
+            value = row.css("td:nth-child(2)::text").get()
+
+            if key and value:
+                data_dict[key.strip()] = value.strip()
+
+        yield {"specifications": data_dict}

@@ -2,11 +2,15 @@
 #
 # See documentation in:
 # https://docs.scrapy.org/en/latest/topics/spider-middleware.html
+import logging
+import random
 
+import requests
 from scrapy import signals
 
 # useful for handling different item types with a single interface
 from itemadapter import is_item, ItemAdapter
+from scrapy.downloadermiddlewares.useragent import UserAgentMiddleware
 
 
 class StoneSpiderMiddleware:
@@ -101,3 +105,141 @@ class StoneDownloaderMiddleware:
 
     def spider_opened(self, spider):
         spider.logger.info("Spider opened: %s" % spider.name)
+
+
+import requests
+import logging
+
+
+class ProxyMiddleware:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Initializing ProxyMiddleware")
+
+        # Fetch proxy list
+        url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all"
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                self.proxies = response.text.strip().split("\n")
+                # Remove empty strings that might be in the list
+                self.proxies = [p for p in self.proxies if p.strip()]
+                self.logger.info(f"Loaded {len(self.proxies)} proxies")
+            else:
+                self.logger.error(f"Failed to fetch proxies: {response.status_code}")
+                self.proxies = []
+        except Exception as e:
+            self.logger.error(f"Error fetching proxies: {e}")
+            self.proxies = []
+
+        self.current_proxy = 0
+        self.bad_proxies = set()
+        self.current_working_proxy = None
+
+    def get_next_proxy(self):
+        """Get the next proxy that hasn't been marked as bad"""
+        if not self.proxies:
+            return None
+
+        attempts = 0
+        max_attempts = len(self.proxies)
+
+        while attempts < max_attempts:
+            proxy = self.proxies[self.current_proxy]
+            self.current_proxy = (self.current_proxy + 1) % len(self.proxies)
+
+            # Skip known bad proxies
+            if proxy in self.bad_proxies:
+                attempts += 1
+                continue
+
+            # Ensure proxy has proper format (but don't modify the URL)
+            if not proxy.startswith(("http://", "https://")):
+                proxy = "http://" + proxy
+
+            return proxy
+
+        return None  # No good proxies left
+
+    def process_request(self, request, spider):
+        # IMPORTANT: Don't modify the original URL
+        original_url = request.url
+
+        # If we have a working proxy, continue using it
+        if (
+            self.current_working_proxy
+            and self.current_working_proxy not in self.bad_proxies
+        ):
+            request.meta["proxy"] = self.current_working_proxy
+            # Make sure the URL is unchanged
+            request._set_url(original_url)
+            return
+
+        # Otherwise, get a new proxy
+        proxy = self.get_next_proxy()
+        if proxy:
+            request.meta["proxy"] = proxy
+            # Make sure the URL is unchanged
+            request._set_url(original_url)
+            self.logger.debug(f"Trying new proxy: {proxy} for {original_url}")
+
+    def process_response(self, request, response, spider):
+        """Track successful proxy uses"""
+        if response.status < 400:  # 2xx and 3xx are generally successful
+            # Remember this proxy as working
+            proxy = request.meta.get("proxy")
+            if proxy:
+                self.current_working_proxy = proxy
+
+        elif response.status >= 400:
+            # If we get an error response, mark the proxy as bad
+            proxy = request.meta.get("proxy")
+            if proxy:
+                self.logger.warning(f"Proxy error: {proxy} - HTTP {response.status}")
+                self.bad_proxies.add(proxy)
+                self.current_working_proxy = None
+
+                # Retry with a new proxy, but keep the original URL
+                retryreq = request.copy()
+                retryreq.dont_filter = True
+                return retryreq
+
+        return response
+
+    def process_exception(self, request, exception, spider):
+        """Handle connection errors with proxies"""
+        # Mark proxy as bad if it fails
+        proxy = request.meta.get("proxy")
+        if proxy:
+            self.logger.warning(f"Proxy error: {proxy} - {exception}")
+            self.bad_proxies.add(proxy)
+            self.current_working_proxy = None
+
+            # Retry with a new proxy, but keep the original URL
+            retryreq = request.copy()
+            retryreq.dont_filter = True
+            return retryreq
+
+        return None
+
+
+class RandomUserAgentMiddleware(UserAgentMiddleware):
+    def __init__(self, user_agent_list):
+        self.user_agent_list = user_agent_list
+        super().__init__()
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        # Load list of user agents from settings
+        user_agent_list = crawler.settings.get("USER_AGENT_LIST", [])
+        middleware = cls(user_agent_list)
+        crawler.signals.connect(middleware.spider_opened, signal=signals.spider_opened)
+        return middleware
+
+    def spider_opened(self, spider):
+        self.user_agent = getattr(
+            spider, "user_agent", random.choice(self.user_agent_list)
+        )
+
+    def process_request(self, request, spider):
+        request.headers["User-Agent"] = random.choice(self.user_agent_list)
