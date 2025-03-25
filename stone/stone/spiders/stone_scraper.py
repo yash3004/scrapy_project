@@ -141,6 +141,7 @@ class StoneScrapper3(scrapy.Spider):
             "price/m^2": price_per_meter,
             "price_per_slab": price,
             "material_type": material_type,
+            "url": response.url,
         }
 
     def parse_single_page2(self, response: Response, **kwargs: Any):
@@ -189,6 +190,7 @@ class StoneScrapper4(scrapy.Spider):
             "vat_inclusive_price": vat_inclusive_price,
             "type": type,
             "stock": stock,
+            "url": response.url,
         }
 
 
@@ -226,7 +228,7 @@ class StoneScrapper5(scrapy.Spider):
             "title": title,
             "image": image,
             "price_per_meter": price,
-            "link": response.url,
+            "url": response.url,
         }
 
 
@@ -285,13 +287,19 @@ class StoneScrapper6(scrapy.Spider):
             "price": price,
             "pack_sizes": pack_sizes,
             "specifications": data_dict,
+            "url": response.url,
         }
 
 
 class StoneScrapper7(scrapy.Spider):
     name = "pavingslabs"
     start_urls = [
-        "https://www.pavingslabsuk.co.uk/collections/paving-slabs-patio-slabs"
+        "https://www.pavingslabsuk.co.uk/collections/paving-slabs-patio-slabs",
+        "https://www.pavingslabsuk.co.uk/collections/porcelain-paving",
+        "https://www.pavingslabsuk.co.uk/collections/sandstone-paving",
+        "https://www.pavingslabsuk.co.uk/collections/granite-paving",
+        "https://www.pavingslabsuk.co.uk/collections/limestone-paving",
+        "https://www.pavingslabsuk.co.uk/collections/stone-wall-cladding-z-panels",
     ]
 
     def start_requests(self):
@@ -308,7 +316,6 @@ class StoneScrapper7(scrapy.Spider):
             self.logger.info(f"No products found on page {page_no}. Stopping.")
             return
 
-        # Process the product links
         for link in product_links:
             if not link.startswith("http"):
                 product_link = f"https://www.pavingslabsuk.co.uk{link}"
@@ -337,29 +344,30 @@ class StoneScrapper7(scrapy.Spider):
         manufacturer_url = response.css(
             "div.t4s-pr__custom-liquid h2 a::attr(href)"
         ).get()
-        script_data = response.xpath("//script[contains(text(), 'price')]/text()").get()
-
-        json_match = re.search(r"({.*})", script_data, re.DOTALL)
-        if json_match:
-            json_text = json_match.group(1)
-            data = commentjson.loads(json_text)
-            prices = [item["price"] for item in data if "price" in item]
-
-            print(prices)
+        original_price = response.css("div.t4s-product-price del::text").get()
+        discounted_price = response.css("div.t4s-product-price ins::text").get()
+        image_url = response.css("img::attr(data-master)").get()[2:]
 
         yield {
             "name": title,
             "description": product_description,
             "url": response.url,
-            "image_urls": response.css(
-                "img.product-featured-image::attr(src)"
-            ).getall(),
+            "image": image_url,
+            "original_price": original_price,
+            "discounted_price": discounted_price,
         }
 
 
 class StoneScrapper8(scrapy.Spider):
 
     name = "ammaaristones"
+    custom_settings = {
+        "DOWNLOADER_MIDDLEWARES": {
+            ".middlewares.YourProxyMiddleware": 750,
+        },
+        "CONCURRENT_REQUESTS": 1,
+        "ROBOTSTXT_OBEY": False,
+    }
     start_urls = ["https://ammaaristones.co.uk/product-category/paving-slabs/"]
 
     headers = {
@@ -379,4 +387,48 @@ class StoneScrapper8(scrapy.Spider):
             yield response.follow(next_page, callback=self.parse)
 
     def parse_single_page(self, response: Response, **kwargs: Any):
+        title = response.css("h1.product_title::text").get()
+        image = response.css("img.wp-post-image::attr(src)").get()
+        price_per_m2 = response.css(
+            "div.col-inner a[style='font-weight: " "600;']::text"
+        ).get()
+        raw_price = response.css("div.price-wrapper p ::text").getall()
+        clean_price = " ".join([p.strip() for p in raw_price if p.strip()])
+        yield {
+            "title": title,
+            "image": image,
+            "price_per_m2": price_per_m2,
+            "price": clean_price,
+            "url": response.url,
+        }
+
         pass
+
+
+import scrapy
+
+
+class MinimalAmmaariSpider(scrapy.Spider):
+    name = "minimal_ammaari"
+
+    custom_settings = {
+        "CONCURRENT_REQUESTS": 1,
+        "ROBOTSTXT_OBEY": False,
+    }
+
+    def start_requests(self):
+        # Get the exact same setup that works in shell
+        yield scrapy.Request(
+            url="https://ammaaristones.co.uk/product-category/paving-slabs/",
+            callback=self.parse,
+        )
+
+    def parse(self, response):
+        self.logger.info(f"Status: {response.status}, URL: {response.url}")
+
+        # Just output whatever we get
+        products = response.css("li.product")
+        for product in products:
+            yield {
+                "name": product.css("h2.woocommerce-loop-product__title::text").get(),
+            }
